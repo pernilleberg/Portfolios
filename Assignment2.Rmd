@@ -37,33 +37,30 @@ Questions:
 library(pacman)
 p_load(rethinking,ggplot2)
 
-p_grid = seq(0,1, length.out = 200)
 
-uniform_prior = rep(1,200) #flat/uniform prior
+length = 1e4
+p_grid = seq(0,1, length.out = length)
+Uni.prior = rep(1,length)
 
 #Plotting prior
-df_prior = data.frame(grid = p_grid, prior = uniform_prior)
-ggplot(df_prior, aes(grid,prior))+geom_line()+xlab("P_grid")+ylab("Uniform Prior")
+temp_df = data.frame(grid = p_grid, prior = Uni.prior)
+prior = ggplot(temp_df, aes(grid,prior))+geom_line()+xlab("P_grid")+ylab("Uniform Prior")
+prior
 
 #Calculating likelihood for Riccardo based on flat prior + posterior probability. 
-likelihood_riccardo = dbinom(3,size = 6, prob = p_grid)
-unstd.posterior = likelihood_riccardo*uniform_prior
-posterior_riccardo = unstd.posterior/sum(unstd.posterior)
+RF.like = dbinom(3,size = 6, prob = p_grid)
+unstd.posterior = RF.like*Uni.prior
+RF.PostUni = unstd.posterior/sum(unstd.posterior)
 
 #Is Riccardo better than chance?
-sum(posterior_riccardo[p_grid < 0.5])
+sum(RF.PostUni[p_grid > 0.5]) 
+temp_df = data.frame(grid = p_grid, posterior = RF.PostUni)
 
-df = data.frame(grid = rep(p_grid,4), posterior = c(posterior_riccardo, posterior_josh, posterior_mikkel, posterior_kristian), teacher = c(rep("RF", length(p_grid)),rep("JS",length(p_grid)),rep("MW",length(p_grid)),rep("KT",length(p_grid))))
-
-Riccardo_df = subset(df, teacher == "RF")
-
-ggplot(Riccardo_df,aes(grid,posterior))+geom_line()+xlab("probability of correct answer")+ylab("posterior probability")
-
-ggplot(df,aes(grid,posterior,color=teacher))+geom_line()+xlab("probability of correct answer")+ylab("posterior probability")
+ggplot(temp_df, aes(grid,posterior))+geom_line()+ xlab("Percentage correct answers")+ylab("Posterior probability")
 
 
 #1.2 - quadratic approx.
-#Explaining the code: map() needs a list with defined values/parameter etc. Here, we need to define the prior p and the likelihood of c (correct answers). p is a uniform prior (why we use dunif) and c is binomial (why we use binom).
+#Explaining the code: map() needs a list with defined values/parameter etc. Here, we need to define the prior p and the likelihood of c (correct answers). p is a uniform prior (why we use dunif) and c is binomial (why we use dbinom).
 know.qa = map(
   alist(
     c ~ dbinom(6,p),
@@ -78,29 +75,36 @@ precis(know.qa)
 2a. Produce plots of the prior, and posterior for each teacher.
 
 ```{r}
-#Calculating likelihoods for 3 remaining professors
-likelihood_mikkel = dbinom(66,size = 132, prob = p_grid)
-likelihood_josh = dbinom(160,size = 198, prob = p_grid)
-likelihood_kristian = dbinom(2,size = 2, prob = p_grid)
+#Making a df with results
+results_df = data.frame(teacher = c("RF","KT","JS","MW"), correct = c(3,2,160,66), n_quest = c(6,2,198,132))
 
-#Calculating posteriors for the 3 of them
-unstd.posterior = likelihood_mikkel*uniform_prior
-posterior_mikkel = unstd.posterior/sum(unstd.posterior)
+#Looping through the teachers
+for (teacher in results_df$teacher){
+  correct = results_df$correct[results_df$teacher == teacher]
+  size = results_df$n_quest[results_df$teacher == teacher]
+  likelihood = dbinom(correct,size = size,prob = p_grid)
+  unstd.posterior = likelihood*Uni.prior
+  posterior = unstd.posterior/sum(unstd.posterior)
+  temp_df = data.frame(grid = p_grid, posterior = posterior)
+  temp_plot = ggplot(temp_df,aes(grid,posterior))+geom_line()+xlab("probability of correct answer")+ylab("posterior probability")
+  assign(paste(teacher, "p",sep =""),temp_plot)
+  assign(paste(teacher, ".PostUni", sep = ""), posterior)
+}
 
-Mikkel_df = subset(df, teacher == "MW")
-ggplot(Mikkel_df,aes(grid,posterior))+geom_line()+xlab("probability of correct answer")+ ylab("posterior probability")
+temp_df = data.frame(p_grid = rep(p_grid, 4), 
+                      posterior = c(MW.PostUni, RF.PostUni, KT.PostUni, JS.PostUni), 
+                      teacher = c(rep("MW", length(MW.PostUni)), rep("RF", length(RF.PostUni)),
+                                  rep("KT", length(KT.PostUni)), rep("JS", length(JS.PostUni)))
+                      )
 
-unstd.posterior = likelihood_josh*uniform_prior
-posterior_josh = unstd.posterior/sum(unstd.posterior)
+ggplot(temp_df, aes(p_grid, posterior, color = teacher))+ geom_line()+xlab("Percentage correct answers")+ylab("Posterior probability")
+ggplot(subset(temp_df, teacher == "MW"), aes(p_grid, posterior))+geom_line()+ xlab("Percentage correct answers")+ylab("Posterior probability")
+ggplot(subset(temp_df, teacher == "KT"), aes(p_grid, posterior))+geom_line()+ xlab("Percentage correct answers")+ylab("Posterior probability")
+ggplot(subset(temp_df, teacher == "JS"), aes(p_grid, posterior))+geom_line()+ xlab("Percentage correct answers")+ylab("Posterior probability")
+ggplot(subset(temp_df, teacher == "RF"), aes(p_grid, posterior))+geom_line()+ xlab("Percentage correct answers")+ylab("Posterior probability")
 
-Josh_df = subset(df, teacher == "JS")
-ggplot(Josh_df,aes(grid,posterior))+geom_line()+xlab("probability of correct answer")+ ylab("posterior probability")
-
-unstd.posterior = likelihood_kristian*uniform_prior
-posterior_kristian = unstd.posterior/sum(unstd.posterior)
-
-Kristian_df=subset(df, teacher =="KT")
-ggplot(Kristian_df,aes(grid,posterior))+geom_line()+xlab("probability of correct answer")+ ylab("posterior probability")
+#Balancing uncertainty and most probable values
+#Criteria - who to chose - are we looking for a superstar? (Kristian) Or are we more conservative? 
 
 ```
 
@@ -110,11 +114,11 @@ ggplot(Kristian_df,aes(grid,posterior))+geom_line()+xlab("probability of correct
 
 ```{r}
 #Making da new prior - we expect more of these smart guys!
-inform_prior = dnorm(p_grid, mean = 0.8, sd = 0.2)
+In.prior = dnorm(p_grid, mean = 0.8, sd = 0.2)
 
 #Plotting prior
-df_inprior = data.frame(grid = p_grid, prior = inform_prior)
-ggplot(df_inprior,aes(grid,prior))+geom_line()+ xlab("P-grid")+ylab("Informed Prior")
+temp_df = data.frame(grid = p_grid, prior = In.prior)
+ggplot(temp_df,aes(grid,prior))+geom_line()
 
 #What does this prior tells us?
   #The tail is skewed --> higher probability assigned to higher scores
@@ -122,39 +126,35 @@ ggplot(df_inprior,aes(grid,prior))+geom_line()+ xlab("P-grid")+ylab("Informed Pr
 
   #The posterior distribution for the 4 professors moves towards a higher probability for higher values of p (the parameter - in this case, correct answers --> a measure of cog sci knowlegde) 
 
-likelihood_mikkel = dbinom(66,size = 132, prob = p_grid)
-unstd.posterior = likelihood_mikkel*inform_prior
-posterior_mikkel = unstd.posterior/sum(unstd.posterior)
+for (teacher in results_df$teacher){
+  correct = results_df$correct[results_df$teacher == teacher]
+  size = results_df$n_quest[results_df$teacher == teacher]
+  likelihood = dbinom(correct,size = size,prob = p_grid)
+  unstd.posterior = likelihood*In.prior
+  posterior = unstd.posterior/sum(unstd.posterior)
+  temp_df = data.frame(grid = p_grid, posterior = posterior)
+  temp_plot = ggplot(temp_df,aes(grid,posterior))+geom_line()+xlab("probability of correct answer")+ylab("posterior probability")
+  assign(paste(teacher, "p",sep =""),temp_plot)
+  assign(paste(teacher, ".PostIn", sep = ""), posterior)
+}
 
-likelihood_josh = dbinom(160,size = 198, prob = p_grid)
-unstd.posterior = likelihood_josh*inform_prior
-posterior_josh = unstd.posterior/sum(unstd.posterior)
+temp_df = data.frame(p_grid = rep(p_grid, 4), 
+                      posterior = c(MW.PostIn, RF.PostIn, KT.PostIn, JS.PostIn),
+                      posterior.Uni = c(MW.PostUni, RF.PostUni, KT.PostUni, JS.PostUni),
+                      teacher = c(rep("MW", length(MW.PostIn)), rep("RF", length(RF.PostIn)),
+                                  rep("KT", length(KT.PostIn)), rep("JS", length(JS.PostIn)))
+                      )
 
-likelihood_kristian = dbinom(2,size = 2, prob = p_grid)
-unstd.posterior = likelihood_kristian*inform_prior
-posterior_kristian = unstd.posterior/sum(unstd.posterior)
+ggplot(temp_df, aes(p_grid, posterior, color = teacher))+ geom_line()+xlab("Percentage correct answers")+ylab("Posterior probability")
 
-likelihood_riccardo = dbinom(3,size = 6, prob = p_grid)
-unstd.posterior = likelihood_riccardo*inform_prior
-posterior_riccardo = unstd.posterior/sum(unstd.posterior)
+ggplot()+geom_line(data = subset(temp_df, teacher == "MW"), aes(p_grid,posterior.Uni), color = "black")+geom_line(data = subset(temp_df, teacher == "MW"), aes(p_grid,posterior), color = "red")+ xlab("Percentage correct answers")+ylab("Posterior probability")
 
-#Plotting all posterior distributions in same plot
-df_newPrior = data.frame(grid = rep(p_grid,4), posterior = c(posterior_riccardo, posterior_josh, posterior_mikkel, posterior_kristian), teacher = c(rep("RF", length(p_grid)),rep("JS",length(p_grid)),rep("MW",length(p_grid)),rep("KT",length(p_grid))))
 
-ggplot(df_newPrior,aes(grid,posterior,color=teacher))+geom_line()+xlab("probability of correct answer")+ylab("posterior probability")
+ggplot()+geom_line(data = subset(temp_df, teacher == "KT"), aes(p_grid,posterior.Uni), color = "black")+geom_line(data = subset(temp_df, teacher == "KT"), aes(p_grid,posterior), color = "red")+ xlab("Percentage correct answers")+ylab("Posterior probability")
 
-#Plotting new and old distributions for each teacher
-Kristian2=subset(df_newPrior, teacher =="KT")
-ggplot()+geom_line(data = Kristian2, aes(grid,posterior), color = "black")+geom_line(data = Kristian_df, aes(grid,posterior), color = "red")+xlab("probability of correct answer")+ylab("posterior probability")
+ggplot()+geom_line(data = subset(temp_df, teacher == "RF"), aes(p_grid,posterior.Uni), color = "black")+geom_line(data = subset(temp_df, teacher == "RF"), aes(p_grid,posterior), color = "red")+ xlab("Percentage correct answers")+ylab("Posterior probability")
 
-Mikkel2 = subset(df_newPrior, teacher == "MW")
-ggplot()+geom_line(data = Mikkel2, aes(grid,posterior), color = "black")+geom_line(data = Mikkel_df, aes(grid,posterior), color = "red")+xlab("probability of correct answer")+ylab("posterior probability")
-
-Josh2 = subset(df_newPrior, teacher == "JS")
-ggplot()+geom_line(data = Josh2, aes(grid,posterior), color = "black")+geom_line(data = Josh_df, aes(grid,posterior), color = "red")+xlab("probability of correct answer")+ylab("posterior probability")
-
-Riccardo2 = subset(df_newPrior, teacher == "RF")
-ggplot()+geom_line(data = Riccardo2, aes(grid,posterior), color = "black")+geom_line(data = Riccardo_df, aes(grid,posterior), color = "red")+xlab("probability of correct answer")+ylab("posterior probability")
+ggplot()+geom_line(data = subset(temp_df, teacher == "JS"), aes(p_grid,posterior.Uni), color = "black")+geom_line(data = subset(temp_df, teacher == "JS"), aes(p_grid,posterior), color = "red")+ xlab("Percentage correct answers")+ylab("Posterior probability")
 
 ```
 
@@ -162,45 +162,50 @@ ggplot()+geom_line(data = Riccardo2, aes(grid,posterior), color = "black")+geom_
 
 ```{r}
 #Multiplying data with 100
-likelihood_mikkel = dbinom(66*100,size = 132*100, prob = p_grid)
-likelihood_josh = dbinom(160*100,size = 198*100, prob = p_grid)
-likelihood_kristian = dbinom(2*100,size = 2*100, prob = p_grid)
-likelihood_riccardo = dbinom(3*100, size = 6*100, prob = p_grid)
+results_df$correctx100 = results_df$correct*100
+results_df$n_questx100 = results_df$n_quest*100
 
-#First, we assume an uniform/flat prior (with more data)
-unstd.posterior = likelihood_mikkel*uniform_prior
-posterior_mikkel = unstd.posterior/sum(unstd.posterior)
+#With uniform/flat prior
+for (teacher in results_df$teacher){
+  correct = results_df$correctx100[results_df$teacher == teacher]
+  size = results_df$n_questx100[results_df$teacher == teacher]
+  likelihood = dbinom(correct,size = size,prob = p_grid)
+  unstd.posterior = likelihood*Uni.prior
+  posterior = unstd.posterior/sum(unstd.posterior)
+  temp_df = data.frame(grid = p_grid, posterior = posterior)
+  temp_plot = ggplot(temp_df,aes(grid,posterior))+geom_line()+xlab("probability of correct answer")+ylab("posterior probability")
+  assign(paste(teacher, "p",sep =""),temp_plot)
+  assign(paste(teacher, ".PostUnix100", sep = ""), posterior)
+}
 
-unstd.posterior = likelihood_josh*uniform_prior
-posterior_josh = unstd.posterior/sum(unstd.posterior)
+temp_df = data.frame(p_grid = rep(p_grid, 4), 
+                      posterior = c(MW.Postx100, RF.Postx100, KT.Postx100, JS.Postx100), 
+                      teacher = c(rep("MW", length(MW.Postx100)), rep("RF", length(RF.Postx100)),
+                                  rep("KT", length(KT.Postx100)), rep("JS", length(JS.Postx100)))
+                      )
 
-unstd.posterior = likelihood_kristian*uniform_prior
-posterior_kristian = unstd.posterior/sum(unstd.posterior)
+ggplot(temp_df, aes(p_grid, posterior, color = teacher))+ geom_line()+xlab("Percentage correct answers")+ylab("Posterior probability")
 
-unstd.posterior = likelihood_riccardo*uniform_prior
-posterior_riccardo = unstd.posterior/sum(unstd.posterior)
+#With informed prior
+for (teacher in results_df$teacher){
+  correct = results_df$correctx100[results_df$teacher == teacher]
+  size = results_df$n_questx100[results_df$teacher == teacher]
+  likelihood = dbinom(correct,size = size,prob = p_grid)
+  unstd.posterior = likelihood*In.prior
+  posterior = unstd.posterior/sum(unstd.posterior)
+  temp_df = data.frame(grid = p_grid, posterior = posterior)
+  temp_plot = ggplot(temp_df,aes(grid,posterior))+geom_line()+xlab("probability of correct answer")+ylab("posterior probability")
+  assign(paste(teacher, "p",sep =""),temp_plot)
+  assign(paste(teacher, ".PostInx100", sep = ""), posterior)
+}
 
-df_moreData = data.frame(grid = rep(p_grid,4), posterior = c(posterior_riccardo, posterior_josh, posterior_mikkel, posterior_kristian), teacher = c(rep("RF", length(p_grid)),rep("JS",length(p_grid)),rep("MW",length(p_grid)),rep("KT",length(p_grid))))
+temp_df = data.frame(p_grid = rep(p_grid, 4), 
+                      posterior = c(MW.PostInx100, RF.PostInx100, KT.PostInx100, JS.PostInx100), 
+                      teacher = c(rep("MW", length(MW.PostInx100)), rep("RF", length(RF.PostInx100)),
+                                  rep("KT", length(KT.PostInx100)), rep("JS", length(JS.PostInx100)))
+                      )
 
-ggplot(df_moreData,aes(grid,posterior,color=teacher))+geom_line()+xlab("probability of correct answer")+ylab("posterior probability")
-
-
-#Informed prior (following the distribution specified above)
-unstd.posterior = likelihood_mikkel*inform_prior
-posterior_mikkel = unstd.posterior/sum(unstd.posterior)
-
-unstd.posterior = likelihood_josh*inform_prior
-posterior_josh = unstd.posterior/sum(unstd.posterior)
-
-unstd.posterior = likelihood_kristian*inform_prior
-posterior_kristian = unstd.posterior/sum(unstd.posterior)
-
-unstd.posterior = likelihood_riccardo*inform_prior
-posterior_riccardo = unstd.posterior/sum(unstd.posterior)
-
-df_moreDataInPrior = data.frame(grid = rep(p_grid,4), posterior = c(posterior_riccardo, posterior_josh, posterior_mikkel, posterior_kristian), teacher = c(rep("RF", length(p_grid)),rep("JS",length(p_grid)),rep("MW",length(p_grid)),rep("KT",length(p_grid))))
-
-ggplot(df_moreDataInPrior,aes(grid,posterior,color=teacher))+geom_line()+xlab("probability of correct answer")+ylab("posterior probability")
+ggplot(temp_df, aes(p_grid, posterior, color = teacher))+ geom_line()+xlab("Percentage correct answers")+ylab("Posterior probability")
 
 #The proability distribution narrows with more data = the number of possible values of p (the parameter) becomes smaller - the contrast between probable numbers and unprobable numbers becomes bigger. 
 ```
@@ -209,6 +214,7 @@ ggplot(df_moreDataInPrior,aes(grid,posterior,color=teacher))+geom_line()+xlab("p
 
 ```{r}
 #Making a conservative prior -> we expect them to score 0 (way below chance) --> assigning zero probability to values above chance (0.5) --> skewing prior probability = skewing posterior probability
+#Following a gaussian distribution, centered around 0.5, but what about SD?
 ```
 
 6. Optional question: Can you estimate the difference between Riccardo's estimated knowledge and that of each of the other teachers? Would you deem it credible (that is, would you believe that it is actually different)?
@@ -232,6 +238,188 @@ plot(SkepticalModel)
 If you dare, try to tweak the data and model to test two hypotheses:
 - Is Kristian different from Josh?
 - Is Josh different from chance?
+
+###Second part: Focusing on predictions
+
+Questions to be answered (but see guidance below):
+1- Write a paragraph discussing how assessment of prediction performance is different in Bayesian vs. frequentist models
+2- Provide at least one plot and one written line discussing prediction errors for each of the teachers.
+
+This is the old data:
+- Riccardo: 3 correct answers out of 6 questions
+- Kristian: 2 correct answers out of 2 questions (then he gets bored)
+- Josh: 160 correct answers out of 198 questions (Josh never gets bored)
+- Mikkel: 66 correct answers out of 132 questions
+
+This is the new data:
+- Riccardo: 9 correct answers out of 10 questions (then he freaks out about teaching preparation and leaves)
+- Kristian: 8 correct answers out of 12 questions
+- Josh: 148 correct answers out of 172 questions (again, Josh never gets bored)
+- Mikkel: 34 correct answers out of 65 questions
+
+Guidance Tips
+
+1. There are at least two ways of assessing predictions.
+2. Last year's results are this year's expectations.
+3. Are the parameter estimates changing? (way 1)
+4. How does the new data look in last year's predictive posterior? (way 2)
+
+```{r}
+#Adding new data to result_df
+results_df$correct.new = c(9,8,148,34)
+results_df$n_quest.new = c(10,12,172,65)
+
+#We assume the an informed prior
+new.Prior = data.frame(RF = RF.PostIn, MW = MW.PostIn, KT = KT.PostIn, JS = JS.PostIn)
+
+#What do we want the loop to do? 1) go through all teachers, and 2) calculate likelihood, 3) calculate unstd.posterior and 3) calculate poserior. We want to plot and save posterior. 
+for (teacher in results_df$teacher){
+  correct = results_df$correct.new[results_df$teacher == teacher]
+  size = results_df$n_quest.new[results_df$teacher == teacher]
+  prior = select(new.Prior, teacher)[,1] 
+  likelihood = dbinom(correct, size = size, prob = p_grid)
+  unstd.posterior = likelihood*prior
+  posterior = unstd.posterior/sum(unstd.posterior)
+  temp_df = data.frame(p_grid = rep(p_grid, 2), 
+                        value = c(posterior, prior), 
+                        type = c(rep("posterior", length(posterior)), rep("prior", length(prior)))
+                        )
+  tempgrob = ggplot(temp_df, aes(x = p_grid, y = value, color = type)) + geom_line() + ylim(0,0.0022) + ggtitle(teacher)
+  assign(paste("n", teacher, "p", sep = ""), tempgrob)
+}
+
+likelihood_mikkel = dbinom(66,size = 132, prob = p_grid)
+likelihood_josh = dbinom(160,size = 198, prob = p_grid)
+likelihood_kristian = dbinom(2,size = 2, prob = p_grid)
+
+
+unstd.posterior = likelihood_mikkel*uniform_prior
+posterior_mikkel = unstd.posterior/sum(unstd.posterior)
+prior_mikkel = posterior_mikkel
+
+unstd.posterior = likelihood_josh*uniform_prior
+posterior_josh = unstd.posterior/sum(unstd.posterior)
+prior_josh = posterior_josh
+
+unstd.posterior = likelihood_kristian*uniform_prior
+posterior_kristian = unstd.posterior/sum(unstd.posterior)
+prior_kristian = posterior_kristian
+
+plot(prior_josh)
+plot(prior_mikkel)
+plot(prior_kristian)
+
+likelihood_mikkel_new = dbinom(34,size = 65, prob = p_grid)
+unstd.posterior = likelihood_mikkel_new*prior_mikkel
+posterior_new_mikkel = unstd.posterior/sum(unstd.posterior)
+
+likelihood_josh_new = dbinom(148,size = 172 , prob = p_grid)
+unstd.posterior = likelihood_josh_new*prior_josh
+posterior_new_josh = unstd.posterior/sum(unstd.posterior)
+
+likelihood_kristian_new = dbinom(8,size = 12, prob = p_grid)
+unstd.posterior = likelihood_kristian_new*prior_kristian
+posterior_new_kristian = unstd.posterior/sum(unstd.posterior)
+
+plot(posterior_new_mikkel)
+plot(posterior_new_josh)
+plot(posterior_new_kristian)
+
+df_oldData = data.frame(grid = rep(p_grid,4), posterior = c(posterior_riccardo,  posterior_josh, posterior_mikkel, posterior_kristian), teacher = c(rep("RF", length(p_grid)),rep("JS",length(p_grid)),rep("MW",length(p_grid)),rep("KT",length(p_grid))))
+
+df_newData = data.frame(grid = rep(p_grid,4), posterior = c(posterior_new_riccardo, posterior_new_josh, posterior_new_mikkel, posterior_new_kristian), teacher = c(rep("RF", length(p_grid)),rep("JS",length(p_grid)),rep("MW",length(p_grid)),rep("KT",length(p_grid))))
+
+ggplot(df_newData,aes(grid,posterior,color=teacher))+geom_line()+xlab("probability of correct answer")+ylab("posterior probability")
+
+#Lets sample from the posterior!
+samples_riccardo = sample(p_grid, prob = posterior_riccardo, size = 1e4, replace = TRUE)
+samples_mikkel = sample(p_grid, prob = posterior_mikkel, size = 1e4, replace = TRUE)
+samples_josh = sample(p_grid, prob = posterior_josh, size = 1e4, replace = TRUE)
+samples_kristian = sample(p_grid, prob = posterior_kristian, size = 1e4, replace = TRUE)
+
+#Making the predictive posterior - how does it hold against the actually observed data?
+simplehist(rbinom(1e4, size = 10, prob = samples_riccardo))
+simplehist(rbinom(1e4, size = 65, prob = samples_mikkel))
+simplehist(rbinom(1e4, size = 172, prob = samples_josh))
+simplehist(rbinom(1e4, size = 12, prob = samples_kristian))
+
+#4. How does the new data look in last year's predictive posterior? (way 2)
+#creating a df containing the samples 
+
+samples_df <- data.frame(RF = sample(p_grid, size = length(p_grid), replace = T, prob = posterior_riccardo), 
+                         MW = sample(p_grid, size = length(p_grid), replace = T, prob =posterior_mikkel), 
+                         JS = sample(p_grid, size = length(p_grid), replace = T, prob = posterior_josh), 
+                         KT = sample(p_grid, size = length(p_grid), replace = T, prob = posterior_kristian))
+
+
+
+
+#make the predictive posterior from the samples
+
+for (teacher in df_oldData$teacher){
+  n_quest = df_oldData$n_quest.new[df_oldData$teacher == teacher] #extracting number of questions
+  correct = df_oldData$correct.new[df_oldData$teacher == teacher]
+  samples <- select(samples_df, teacher)[,1]
+  if (teacher == df_oldData$teacher[1]){ # if it is the first teacher
+    Predpos_df <- data.frame(
+      valueAbs = rbinom(length(p_grid), n_quest, prob = samples),
+      acc = rbinom(length(p_grid), n_quest, prob = samples)/n_quest,
+      valueCentered = rbinom(length(p_grid), n_quest, prob = samples)-correct,
+      valueRelative = (rbinom(length(p_grid), n_quest, prob = samples)-correct)/n_quest, teacher = teacher)
+  } else {
+    Predpos_df <- rbind(Predpos_df, 
+                         Predpos_df <- data.frame(
+                           valueAbs = rbinom(length(p_grid), n_quest, prob = samples),
+                           acc = rbinom(length(p_grid), n_quest, prob = samples)/n_quest,
+                           valueCentered = rbinom(length(p_grid), n_quest, prob = samples)-correct,
+                           valueRelative = (rbinom(length(p_grid), n_quest, prob =
+                                                     samples)-correct)/n_quest, teacher = teacher)
+                         )
+  }
+}
+
+ggplot(Predpos_df, aes(x = valueAbs, color = teacher)) + geom_density()
+ggplot(Predpos_df, aes(x = acc, color = teacher)) + geom_density()
+ggplot(Predpos_df, aes(x = valueCentered, color = teacher)) + geom_density()
+ggplot(Predpos_df, aes(x = valueRelative, color = teacher)) + geom_density()
+```
+
+Questions to be answered (but see guidance below):
+1- Write a paragraph discussing how assessment of prediction performance is different in Bayesian vs. frequentist models
+2- Provide at least one plot and one written line discussing prediction errors for each of the teachers.
+
+This is the old data:
+- Riccardo: 3 correct answers out of 6 questions
+- Kristian: 2 correct answers out of 2 questions (then he gets bored)
+- Josh: 160 correct answers out of 198 questions (Josh never gets bored)
+- Mikkel: 66 correct answers out of 132 questions
+
+This is the new data:
+- Riccardo: 9 correct answers out of 10 questions (then he freaks out about teaching preparation and leaves)
+- Kristian: 8 correct answers out of 12 questions
+- Josh: 148 correct answers out of 172 questions (again, Josh never gets bored)
+- Mikkel: 34 correct answers out of 65 questions
+
+Guidance Tips
+
+1. There are at least two ways of assessing predictions.
+2. Last year's results are this year's expectations.
+3. Are the parameter estimates changing? (way 1)
+4. How does the new data look in last year's predictive posterior? (way 2)
+
+
+### Depending on time: Questions from the handbook
+2H1. Suppose there are two species of panda bear. Both are equally common in the wild and live in the same places. They look exactly alike and eat the same food, and there is yet no genetic assay capable of telling them apart. They differ however in their family sizes. Species A gives birth to twins 10% of the time, otherwise birthing a single infant. Species B births twins 20% of the time, otherwise birthing singleton infants. Assume these numbers are known with certainty, from many years of field research.
+Now suppose you are managing a captive panda breeding program. You have a new female panda of unknown species, and she has just given birth to twins. What is the probability that her next birth will also be twins?
+
+2H2. Recall all the facts from the problem above. Now compute the probability that the panda we have is from species A, assuming we have observed only the first birth and that it was twins.
+
+2H3. Continuing on from the previous problem, suppose the same panda mother has a second birth and that it is not twins, but a singleton infant. Compute the posterior probability that this panda is species A.
+
+2H4. A common boast of Bayesian statisticians is that Bayesian inference makes it easy to use all of the data, even if the data are of different types. So suppose now that a veterinarian comes along who has a new genetic test that she claims can identify the species of our mother panda. But the test, like all tests, is imperfect. This is the information you have about the test:
+- The probability it correctly identifies a species A panda is 0.8.
+- The probability it correctly identifies a species B panda is 0.65.
+The vet administers the test to your panda and tells you that the test is positive for species A. First ignore your previous information from the births and compute the posterior probability that your panda is species A. Then redo your calculation, now using the birth data as well.
 
 
 
