@@ -37,7 +37,6 @@ Questions:
 library(pacman)
 p_load(rethinking,ggplot2)
 
-
 length = 1e4
 p_grid = seq(0,1, length.out = length)
 Uni.prior = rep(1,length)
@@ -269,10 +268,11 @@ Guidance Tips
 results_df$correct.new = c(9,8,148,34)
 results_df$n_quest.new = c(10,12,172,65)
 
-#We assume the an informed prior
+#We assume an informed prior
 new.Prior = data.frame(RF = RF.PostIn, MW = MW.PostIn, KT = KT.PostIn, JS = JS.PostIn)
 
 #What do we want the loop to do? 1) go through all teachers, and 2) calculate likelihood, 3) calculate unstd.posterior and 3) calculate poserior. We want to plot and save posterior. 
+library(dplyr)
 for (teacher in results_df$teacher){
   correct = results_df$correct.new[results_df$teacher == teacher]
   size = results_df$n_quest.new[results_df$teacher == teacher]
@@ -284,83 +284,30 @@ for (teacher in results_df$teacher){
                         value = c(posterior, prior), 
                         type = c(rep("posterior", length(posterior)), rep("prior", length(prior)))
                         )
-  tempgrob = ggplot(temp_df, aes(x = p_grid, y = value, color = type)) + geom_line() + ylim(0,0.0022) + ggtitle(teacher)
-  assign(paste("n", teacher, "p", sep = ""), tempgrob)
+  temp_plot = ggplot(temp_df, aes(x = p_grid, y = value, color = type)) + geom_line() + ylim(0,0.0022) + ggtitle(teacher)
+  assign(paste("n", teacher, "p", sep = ""), temp_plot)
 }
 
-likelihood_mikkel = dbinom(66,size = 132, prob = p_grid)
-likelihood_josh = dbinom(160,size = 198, prob = p_grid)
-likelihood_kristian = dbinom(2,size = 2, prob = p_grid)
+plot(nRFp)
+plot(nMWp)
+plot(nJSp)
+plot(nKTp)
 
+#Lets sample from the posterior! sample_df - much more easy to make a df than running sample function, then making a samplehist
+samples_df = data.frame(RF = sample(p_grid, prob = RF.PostIn, size = 1e4, replace = TRUE),
+                        MW = sample(p_grid, prob = MW.PostIn, size = 1e4, replace = TRUE),
+                        KT = sample(p_grid, prob = KT.PostIn, size = 1e4, replace = TRUE),
+                        JS = sample(p_grid, prob = RF.PostIn, size = 1e4, replace = TRUE))
 
-unstd.posterior = likelihood_mikkel*uniform_prior
-posterior_mikkel = unstd.posterior/sum(unstd.posterior)
-prior_mikkel = posterior_mikkel
-
-unstd.posterior = likelihood_josh*uniform_prior
-posterior_josh = unstd.posterior/sum(unstd.posterior)
-prior_josh = posterior_josh
-
-unstd.posterior = likelihood_kristian*uniform_prior
-posterior_kristian = unstd.posterior/sum(unstd.posterior)
-prior_kristian = posterior_kristian
-
-plot(prior_josh)
-plot(prior_mikkel)
-plot(prior_kristian)
-
-likelihood_mikkel_new = dbinom(34,size = 65, prob = p_grid)
-unstd.posterior = likelihood_mikkel_new*prior_mikkel
-posterior_new_mikkel = unstd.posterior/sum(unstd.posterior)
-
-likelihood_josh_new = dbinom(148,size = 172 , prob = p_grid)
-unstd.posterior = likelihood_josh_new*prior_josh
-posterior_new_josh = unstd.posterior/sum(unstd.posterior)
-
-likelihood_kristian_new = dbinom(8,size = 12, prob = p_grid)
-unstd.posterior = likelihood_kristian_new*prior_kristian
-posterior_new_kristian = unstd.posterior/sum(unstd.posterior)
-
-plot(posterior_new_mikkel)
-plot(posterior_new_josh)
-plot(posterior_new_kristian)
-
-df_oldData = data.frame(grid = rep(p_grid,4), posterior = c(posterior_riccardo,  posterior_josh, posterior_mikkel, posterior_kristian), teacher = c(rep("RF", length(p_grid)),rep("JS",length(p_grid)),rep("MW",length(p_grid)),rep("KT",length(p_grid))))
-
-df_newData = data.frame(grid = rep(p_grid,4), posterior = c(posterior_new_riccardo, posterior_new_josh, posterior_new_mikkel, posterior_new_kristian), teacher = c(rep("RF", length(p_grid)),rep("JS",length(p_grid)),rep("MW",length(p_grid)),rep("KT",length(p_grid))))
-
-ggplot(df_newData,aes(grid,posterior,color=teacher))+geom_line()+xlab("probability of correct answer")+ylab("posterior probability")
-
-#Lets sample from the posterior!
-samples_riccardo = sample(p_grid, prob = posterior_riccardo, size = 1e4, replace = TRUE)
-samples_mikkel = sample(p_grid, prob = posterior_mikkel, size = 1e4, replace = TRUE)
-samples_josh = sample(p_grid, prob = posterior_josh, size = 1e4, replace = TRUE)
-samples_kristian = sample(p_grid, prob = posterior_kristian, size = 1e4, replace = TRUE)
-
-#Making the predictive posterior - how does it hold against the actually observed data?
-simplehist(rbinom(1e4, size = 10, prob = samples_riccardo))
-simplehist(rbinom(1e4, size = 65, prob = samples_mikkel))
-simplehist(rbinom(1e4, size = 172, prob = samples_josh))
-simplehist(rbinom(1e4, size = 12, prob = samples_kristian))
 
 #4. How does the new data look in last year's predictive posterior? (way 2)
-#creating a df containing the samples 
-
-samples_df <- data.frame(RF = sample(p_grid, size = length(p_grid), replace = T, prob = posterior_riccardo), 
-                         MW = sample(p_grid, size = length(p_grid), replace = T, prob =posterior_mikkel), 
-                         JS = sample(p_grid, size = length(p_grid), replace = T, prob = posterior_josh), 
-                         KT = sample(p_grid, size = length(p_grid), replace = T, prob = posterior_kristian))
-
-
-
 
 #make the predictive posterior from the samples
-
-for (teacher in df_oldData$teacher){
-  n_quest = df_oldData$n_quest.new[df_oldData$teacher == teacher] #extracting number of questions
-  correct = df_oldData$correct.new[df_oldData$teacher == teacher]
+for (teacher in results_df$teacher){
+  n_quest = results_df$n_quest.new[results_df$teacher == teacher] #extracting number of questions
+  correct = results_df$correct.new[results_df$teacher == teacher]
   samples <- select(samples_df, teacher)[,1]
-  if (teacher == df_oldData$teacher[1]){ # if it is the first teacher
+  if (teacher == results_df$teacher[1]){ # if it is the first teacher
     Predpos_df <- data.frame(
       valueAbs = rbinom(length(p_grid), n_quest, prob = samples),
       acc = rbinom(length(p_grid), n_quest, prob = samples)/n_quest,
@@ -378,35 +325,16 @@ for (teacher in df_oldData$teacher){
   }
 }
 
-ggplot(Predpos_df, aes(x = valueAbs, color = teacher)) + geom_density()
-ggplot(Predpos_df, aes(x = acc, color = teacher)) + geom_density()
-ggplot(Predpos_df, aes(x = valueCentered, color = teacher)) + geom_density()
-ggplot(Predpos_df, aes(x = valueRelative, color = teacher)) + geom_density()
+ggplot(subset(Predpos_df, teacher == "RF"), aes(x = valueAbs)) + geom_density()
+ggplot(subset(Predpos_df, teacher == "MW"), aes(x = valueAbs)) + geom_density()
+ggplot(subset(Predpos_df, teacher == "KT"), aes(x = valueAbs)) + geom_density()
+ggplot(subset(Predpos_df, teacher == "JS"), aes(x = valueAbs)) + geom_density()
+
+ggplot(subset(Predpos_df, teacher == "RF"), aes(x = acc)) + geom_density()
+ggplot(subset(Predpos_df, teacher == "MW"), aes(x = acc)) + geom_density()
+ggplot(subset(Predpos_df, teacher == "KT"), aes(x = acc)) + geom_density()
+ggplot(subset(Predpos_df, teacher == "JS"), aes(x = acc)) + geom_density()
 ```
-
-Questions to be answered (but see guidance below):
-1- Write a paragraph discussing how assessment of prediction performance is different in Bayesian vs. frequentist models
-2- Provide at least one plot and one written line discussing prediction errors for each of the teachers.
-
-This is the old data:
-- Riccardo: 3 correct answers out of 6 questions
-- Kristian: 2 correct answers out of 2 questions (then he gets bored)
-- Josh: 160 correct answers out of 198 questions (Josh never gets bored)
-- Mikkel: 66 correct answers out of 132 questions
-
-This is the new data:
-- Riccardo: 9 correct answers out of 10 questions (then he freaks out about teaching preparation and leaves)
-- Kristian: 8 correct answers out of 12 questions
-- Josh: 148 correct answers out of 172 questions (again, Josh never gets bored)
-- Mikkel: 34 correct answers out of 65 questions
-
-Guidance Tips
-
-1. There are at least two ways of assessing predictions.
-2. Last year's results are this year's expectations.
-3. Are the parameter estimates changing? (way 1)
-4. How does the new data look in last year's predictive posterior? (way 2)
-
 
 ### Depending on time: Questions from the handbook
 2H1. Suppose there are two species of panda bear. Both are equally common in the wild and live in the same places. They look exactly alike and eat the same food, and there is yet no genetic assay capable of telling them apart. They differ however in their family sizes. Species A gives birth to twins 10% of the time, otherwise birthing a single infant. Species B births twins 20% of the time, otherwise birthing singleton infants. Assume these numbers are known with certainty, from many years of field research.

@@ -1,0 +1,248 @@
+---
+title: "Assignment 4 - Applying meta-analytic priors"
+author: "Riccardo Fusaroli"
+date: "3/16/2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Assignment 4
+
+In this assignment we do the following:
+- we reproduce the meta-analysis of pitch SD from last semester in a Bayesian framework
+- we reproduce the pitch SD in schizophrenia analysis from last semester using both a conservative and a meta-analytic prior
+- we assess the difference in model quality and estimates using the two priors.
+
+The questions you need to answer are: What are the consequences of using a meta-analytic prior? (I.e. using previous information). Evaluate the models with conservative and meta-analytic priors. Discuss the effects on estimates. Discuss the effects on model quality. Discuss the role that meta-analytic priors should have in scientific practice. Should we systematically use them? Do they have drawbacks? Should we use them to complement more conservative approaches? How does the use of meta-analytic priors you suggest reflect the skeptical and cumulative nature of science?
+
+### Step by step suggestions
+
+Step 1: Reproduce the meta-analysis of pitch sd from previous studies of voice in schizophrenia
+- the data is available as Assignment4MetaData.xlsx
+- Effect size (cohen's d), sd and variance are already calculated (you're welcome!)
+- Since we're only interested in getting a meta-analytic effect size, let's take a shortcut and use bromance magic (brms): https://mvuorre.github.io/post/2016/2016-09-29-bayesian-meta-analysis/
+
+
+```{r}
+library(pacman)
+p_load(rethinking, ggplot2,lme4,metafor,tidyverse,brms)
+
+#Effect size = the difference between two mean (how big is the effect?)
+#Mean/Standardized Effect size (MeanES) - Cohen's D
+#Standard deviation of the Standardized Effect size (SdES) - Standard Deviation of Cohen's D
+
+#Reading and cleaning data
+Meta.df = readxl::read_xlsx("Assignment4MetaData.xlsx")
+Pitch.df = readxl::read_xlsx("Assignment4PitchDatav2.xlsx")
+
+#Doing some bromance magic (first we did the classical thing from last year) 
+ggplot(Meta.df, aes(x=Meta.df$MeanES, y=Meta.df$StudyRef)) +
+    geom_segment(aes(x = MeanES-SdES*2, xend = MeanES+SdES*2, y=StudyRef, yend=StudyRef)) +
+    geom_point()
+
+m1 = rma(yi = MeanES, vi = VarianceES, sdi = SdES, data = Meta.df, slab = StudyRef)
+forest(m1)
+summary(m1)
+
+#Bromance!
+m2 <- brm(MeanES | se(SdES) ~ 1 + (1|StudyRef),
+          prior = NULL,
+          data = Meta.df,
+          iter = 2000, 
+          cores = 2, 
+          chain = 2)
+
+summary(m2)
+library(brmstools)
+brmstools::forest(m2,show_data = TRUE,av_name = "Effect Size")+geom_vline(aes(xintercept = 0),linetype = "dashed")
+
+#brm is basically glmer for bayesian 
+#Adding study as random effect - the different studies might not be tapping into the same population
+#|se(SdES) --> adding weigth - the smaller the sample size, the less the study should count 
+#Iter = how long should each model search for a solution 
+#Normally you specify priors - but for this time we use the default
+#In the forest plot, the star is the observed effect size
+```
+
+Step 2: Prepare the pitch SD data from last year
+- the data is available as Assignment4PitchData.csv (thanks Celine)
+- We do not know how to build random effects, yet. So we need to simplify the dataset to avoid interdependence between datapoint: How?
+- Also, let's standardize the data, so that they are compatible with our meta-analytic prior (Cohen's d is measured in SDs).
+
+```{r}
+#Getting rid of repeated measures - averaging by unique ID - the mean is a magical number
+Pitch.df_Grouped = Pitch.df %>% group_by(ID_unique) %>% summarise(trial = trial[1], PitchMean = mean(PitchMean), PitchSD = mean(PitchSD), diagnosis = diagnosis[1])
+
+#Standardizing! Centering by the mean
+rescalelist = c("PitchMean","PitchSD") #making a list with variales we want to scale
+Pitch.Gr.s = Pitch.df_Grouped[, colnames(Pitch.df_Grouped) %in% rescalelist] %>% 
+  lapply(.,function(x) scale(x,center= mean(x,na.rm = T), scale = sd(x, na.rm = T)))%>% 
+  cbind(.,Pitch.df_Grouped[,! colnames(Pitch.df_Grouped) %in% rescalelist]) 
+
+```
+
+Step 3: Build a regression model predicting Pitch SD from Diagnosis.
+- how is the outcome distributed? (likelihood function)
+- how are the parameters of the likelihood distribution distributed? Which predictors should they be conditioned on?
+- use a skeptical/conservative prior for the effects of diagnosis. Remember you'll need to motivate it.
+- Describe and plot the estimates. Evaluate model quality
+
+```{r}
+
+#Outcome distribution - likelihood function? 
+#Turning sigma into a linear model (because we expect diagnosis to have an influence on the level of variance)
+  #Log(sigma) --> making sure that sigma is always postive
+#Repeated measures
+  #my(PitchSD) ~ a[participant]+b[participant]*diagnosis
+
+#Which predictors are parameters conditioned on?
+
+#Building a model predicting PitchSD from Diagnosis
+#Outcome distribution (likelihood function) = normal distributed - why?
+#Parameters are all normal distrbuted -> We like the amount of entropy that we can have and we like that
+#Sigma -> cauchy distribution --> bounded at 0, continous and with cauchy we assign probablility to an infinite amount of numbers
+#How do we add this (the priors) to brm?
+  #PitchSD ~ dnorm(my,sigma),
+          #my <- a + b*diagnosis,
+          #a ~ dnorm(0,1),
+          #b ~ dnorm(0,1),
+          #sigma ~ dcauchy(0,2)
+  #This is how we do:
+  #First we specify a formula (Outcome ~ predictor)
+  #Then we specify priors as a list
+  #We use the formual and the prior list in brm
+
+m3_formula <- bf(PitchSD ~ diagnosis)
+get_prior(m3_formula,Pitch.Gr.s) #Asking the model which priors it recommend
+prior = c(prior(normal(0,1), class = Intercept),
+          prior(normal(0,1),class = b, coef = diagnosis), #In this case specifying coef is actually not necessary because we only have one predictor - but often we will have more, so it's just a good idea to do so
+          prior(cauchy(0,2),class =sigma))
+
+m3 <- brm(m3_formula,
+          family = gaussian(), #We assume our likelihood function to be normally distributed
+          prior = prior, #our list of pre-defined priors
+          data = Pitch.Gr.s,
+          iter = 2000,
+          cores = 2,
+          chain = 2)
+
+summary(m3)
+plot(m3) #plot the estimates and quality checking -> the model looks ok (Rhat are also looking good - close to 1)
+
+#Let's make one with a skeptical/conservative prior
+m4_formula <- bf(PitchSD ~ diagnosis)
+
+con_prior <- c(prior(normal(0,1), class = Intercept),
+               prior(normal(0,0.2),class = b, coef = diagnosis),
+               prior(cauchy(0,2),class = sigma))
+
+m4 <- brm(m4_formula,
+          family = gaussian(),
+          prior = con_prior,
+          data = Pitch.Gr.s,
+          iter = 2000,
+          cores = 2,
+          chain = 2)
+summary(m4)
+plot(m4)
+```
+
+Step 4: Now re-run the model with the meta-analytic prior
+- Describe and plot the estimates. Evaluate model quality
+
+```{r}
+#meta-analytic prior 
+#se of the intercept --> used in the beta as mean
+#mean of the intercept --> used in the beta prior as sd
+#sd(int) #this could be used intead of se, heterogenous means --> if we believe we are not tapping into the same population --> do we care about the general state of the littreature?
+#se(sd(int))
+#Pernille din noob! Kig summary af m2!!! 
+
+m5_formula <- bf(PitchSD ~ diagnosis)
+
+meta_prior <- c(prior(normal(0,1),class = Intercept),
+                prior(normal(-0.6, 0.27), class = b, coef = diagnosis),
+                prior(cauchy(0,2), class = sigma)) #expected error for any given subject
+
+m5 <- brm(m5_formula,
+          family = gaussian,
+          prior = meta_prior,
+          data = Pitch.Gr.s,
+          iter = 2000,
+          cores = 2,
+          chain = 2)
+summary(m5)
+plot(m5)
+
+```
+
+Step 5: Compare the models
+- Plot priors and posteriors of the diagnosis effect in both models
+- Compare posteriors between the two models
+- Compare their relative distance from truth (WAIC)
+- Discuss how they compare and whether any of them is best.
+
+```{r}
+#Let's do some comparing!
+#plot priors
+x <- seq(-2,2, length=1e5)
+y <- dnorm(x, 0, 0.5) #original
+y.s <- dnorm(x, 0, 0.1) #sceptical
+y.m <- dnorm(x, -0.54, 0.23) #meta
+prior_df <- data.frame(x = rep(x,3), y = c(y, y.s, y.m), prior = c(rep("original", length(y)),
+                                                                   rep("sceptical", length(y.s)),
+                                                                   rep("meta", length(y.m))
+                                                                   ))
+ggplot(prior_df, aes(x = x, y = y, color = prior)) + geom_line() 
+#Beautiful
+  #As we expected: sceptical is more narrow
+  #Meta has a lower mean than original
+  #All in all - beautiful priors and pretty plot
+
+#plot posterior
+post_samples <- c(posterior_samples(m3)$b_diagnosis1, posterior_samples(m4)$b_diagnosis, posterior_samples(m5)$b_diagnosis) #how do I extract more than a 1000 per
+post_df <- data.frame(post_samples = post_samples, model = c(rep("original", 1000),
+                                                                   rep("sceptical", 1000),
+                                                                   rep("meta", 1000)
+                                                                   ))
+ggplot(post_df, aes(x = post_samples, color = model)) + geom_density(adjust = 1) 
+
+  #compare models:
+waic <- brms::WAIC(m3, m4, m5)
+weights <- brms::model_weights(m3, m4, m5, weights = "waic")
+
+weights
+
+
+```
+
+Step 6: Prepare a nice write up of the analysis and answer the questions at the top.
+
+Optional step 7: how skeptical should a prior be?
+- Try different levels of skepticism and compare them using WAIC.
+
+Optional step 8: Include other predictors
+- Do age, gender and education improve the model?
+- Should they be main effects or interactions?
+
+Optional step 9: Bromance magic.
+- explore the bromance code below including random effects (by default with weakly informative priors)
+- learn how to change the prior
+- explore effects of trial, age, gender, including the appropriate random slopes
+- compare the models you created using WAIC and posterior predictive check (pp_check())
+
+
+```{r}
+
+brm_out <- brm(PitchSD ~ 1 + Diagnosis  +(1|ID_unique/Study), # Outcome as a function of the predictors as in lme4. 
+               data=Data, # Define the data
+               family=gaussian(), # Define the family. 
+               iter = 5000, warmup = 2000, cores = 4)
+summary(brm_out1)
+plot(brm_out1)
+
+```
+
